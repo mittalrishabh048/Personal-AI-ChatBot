@@ -10,20 +10,27 @@ logging.basicConfig(
 def main():
     logging.info("Chatbot application lifecycle started.")
     
+    # Initialize engine storage systems before receiving user interactions
+    chatengine.load_system_data()
+    
     user_name = input("What's your name: ").strip()
     if not user_name:
         user_name = "User"
         
     greeting = chatengine.get_time_greeting(user_name)
     print(greeting)
-    print("Hello and Welcome to your Chatbot")
-    print("You can ask me basic questions. Type 'bye' to exit from the bot.")
+    
+    # Retrieve configuration dynamically rather than using hardcoded values
+    bot_name = chatengine.get_config_item("bot_name")
+    welcome_msg = chatengine.get_config_item("welcome_instruction")
+    
+    print(f"Hello and Welcome to {bot_name}")
+    print(welcome_msg)
 
     while True:
         try:
             user_input = input("\nAsk Your Question: ").strip()
             
-            # Edge Case Handling: Catch empty inputs early
             if not user_input:
                 print("Bot response: Please type something so I can help you!")
                 continue

@@ -1,0 +1,5 @@
+{
+  "bot_name": "Smart AI Chatbot",
+  "fallback_message": "Sorry, I am not able to tell you about this!",
+  "welcome_instruction": "You can ask me basic questions. Type 'bye' to exit from the bot."
+}
