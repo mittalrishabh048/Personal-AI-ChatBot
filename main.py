@@ -10,7 +10,8 @@ logging.basicConfig(
 def main():
     logging.info("Chatbot application lifecycle started.")
     
-    # 1. Initialize System Storage and Configurations
+    # 1. Step up infrastructure dependencies and local databases
+    chatengine.download_nlp_dependencies()
     chatengine.load_system_data()
     database.init_db()
     
@@ -22,8 +23,6 @@ def main():
     # Check if this profile has visited before
     existing_user = database.get_user_profile(input_name)
     is_returning = existing_user is not None
-    
-    # Update state profile tracking records
     database.save_or_update_user(input_name)
     
     # 3. Dynamic User Greeting Sequences
