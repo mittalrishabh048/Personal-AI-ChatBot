@@ -1,5 +1,5 @@
 nltk==3.9.1
-scikit-learn
 fastapi
 uvicorn
 pydantic
+groq
