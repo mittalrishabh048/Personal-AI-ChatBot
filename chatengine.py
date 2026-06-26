@@ -7,23 +7,28 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 
+# Third-party Machine Learning utilities
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESPONSES_PATH = os.path.join(BASE_DIR, "config", "responses.json")
 CONFIG_PATH = os.path.join(BASE_DIR, "config", "config.json")
 
+# Global Application States
 responses = {}
 bot_config = {}
 stemmer = PorterStemmer()
 
-# Cached dictionary of normalized/stemmed knowledge base keys
-# Maps a stemmed string back to the original dictionary answer string
-processed_knowledge_base = {}
+# ML Component Placeholders
+vectorizer = None
+knowledge_matrix = None
+response_mapping = []  # Index-aligned list matching rows in the matrix to answers
+CONFIDENCE_THRESHOLD = 0.35  # Strictness boundary for mathematical matching
 
 def download_nlp_dependencies():
     """Ensures necessary NLTK data bundles are downloaded on the host device."""
     try:
-        # 'punkt_tab' or 'punkt' provides the rules needed to split text into distinct word tokens
         nltk.data.find('tokenizers/punkt')
     except LookupError:
         logging.info("Downloading missing NLTK tokenizer models...")
@@ -31,57 +36,54 @@ def download_nlp_dependencies():
         nltk.download('punkt_tab', quiet=True)
 
     try:
-        # 'stopwords' provides lists of meaningless filler words for multiple languages
         nltk.data.find('corpora/stopwords')
     except LookupError:
         logging.info("Downloading missing NLTK stopword corpora...")
         nltk.download('stopwords', quiet=True)
 
-def preprocess_text(text: str) -> list:
-    """Transforms a raw text string into a list of cleaned, stemmed tokens."""
-    # 1. Lowercase and Tokenize
+def preprocess_tokenizer(text: str) -> list:
+    """Custom tokenizer mapping used internally by the TfidfVectorizer."""
     tokens = word_tokenize(text.lower())
-    
-    # 2. Extract standard English stop words and punctuation strings
     stop_words = set(stopwords.words('english'))
     
-    # 3. Filter filler tokens and reduce remaining vocabulary to standard word roots
     cleaned_stems = [
         stemmer.stem(token) 
         for token in tokens 
         if token.isalnum() and token not in stop_words
     ]
-    
     return cleaned_stems
 
 def load_system_data():
-    """Reads and parses JSON configuration data into memory."""
-    global responses, bot_config, processed_knowledge_base
+    """Reads configuration data and fits the TF-IDF Vector Space Matrix."""
+    global responses, bot_config, vectorizer, knowledge_matrix, response_mapping
     try:
         with open(RESPONSES_PATH, "r", encoding="utf-8") as f:
             responses = json.load(f)
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             bot_config = json.load(f)
+            
+        # Extract raw keys (intents) and values (answers) from knowledge base
+        intent_keys = list(responses.keys())
+        response_mapping = list(responses.values())
+        
+        if not intent_keys:
+            raise ValueError("Knowledge base responses.json cannot be empty.")
 
-        # Build the preprocessed matching cache
-        processed_knowledge_base.clear()
-        for key, answer in responses.items():
-            # Process the trigger phrase key (e.g., "motivate me" -> ["motiv"])
-            stemmed_tokens = preprocess_text(key)
-            # Re-join tokens into a space-separated signature string
-            signature = " ".join(stemmed_tokens)
-            processed_knowledge_base[signature] = answer
-
-        logging.info("Configuration and knowledge base successfully loaded from disk.")
+        # Initialize the vectorizer with our custom cleaning pipeline
+        vectorizer = TfidfVectorizer(tokenizer=preprocess_tokenizer, token_pattern=None)
+        
+        # Fit the vectorizer and transform keys into numerical coordinate vectors
+        knowledge_matrix = vectorizer.fit_transform(intent_keys)
+        
+        logging.info(f"Vector space initialized. Vector vocabulary size: {len(vectorizer.vocabulary_)}")
     except Exception as e:
-        logging.error(f"Initialization configuration loading failure: {e}")
+        logging.error(f"Failed to compile the vector environment: {e}")
         raise
 
 def get_config_item(key: str) -> str:
     return bot_config.get(key, "")
 
 def get_time_greeting(name: str, is_returning: bool = False) -> str:
-    """Calculates the greeting, personalizing it if the profile already existed."""
     present_hour = datetime.datetime.now().hour
     base_greeting = "Good Night"
     if 5 <= present_hour <= 11:
@@ -96,20 +98,29 @@ def get_time_greeting(name: str, is_returning: bool = False) -> str:
     return f"{base_greeting}, {name}."
 
 def get_response(user_query: str) -> str:
-    """Evaluates text intents by processing tokens through the pipeline."""
-    user_stems = preprocess_text(user_query)
-
-    # If the user input is entirely stop words, handle it gracefully
-    if not user_stems:
-        return bot_config.get("fallback_message", "I cannot process that message.")
+    """Calculates Cosine Similarity between user text vector and knowledge base."""
+    global vectorizer, knowledge_matrix, response_mapping
     
-    # Check for direct matches based on normalized token overlap
-    for signature, answer in processed_knowledge_base.items():
-        # Split signature back to standalone stems
-        sig_stems = signature.split()
+    # Handle direct edge case where vectorizer failed or input is blank
+    if vectorizer is None or not user_query.strip():
+        return bot_config.get("fallback_message", "I cannot process that message.")
+
+    # Convert the user's incoming query into the exact same vector space
+    user_vector = vectorizer.transform([user_query])
+    
+    # Calculate similarity score against every row in our database matrix
+    # returns an array of scores (e.g., [[0.12, 0.85, 0.0, 0.23]])
+    similarity_scores = cosine_similarity(user_vector, knowledge_matrix)[0]
+    
+    # Identify the index of the highest score
+    best_match_idx = similarity_scores.argmax()
+    highest_score = similarity_scores[best_match_idx]
+    
+    # Architectural Logging for debugging vector distances
+    logging.info(f"Query: '{user_query}' -> Top Match Score: {highest_score:.4f} at index {best_match_idx}")
+    
+    # Algorithmic Thresholding
+    if highest_score >= CONFIDENCE_THRESHOLD:
+        return response_mapping[best_match_idx]
         
-        # If all core keyword stems of a response key are present inside the user's input tokens
-        if sig_stems and all(stem in user_stems for stem in sig_stems):
-            return answer
-            
     return bot_config.get("fallback_message", "I cannot process that message.")

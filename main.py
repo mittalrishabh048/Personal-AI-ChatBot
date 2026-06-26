@@ -10,22 +10,18 @@ logging.basicConfig(
 def main():
     logging.info("Chatbot application lifecycle started.")
     
-    # 1. Step up infrastructure dependencies and local databases
     chatengine.download_nlp_dependencies()
     chatengine.load_system_data()
     database.init_db()
     
-    # 2. Handle User Authentication State
     input_name = input("What's your name: ").strip()
     if not input_name:
         input_name = "User"
         
-    # Check if this profile has visited before
     existing_user = database.get_user_profile(input_name)
     is_returning = existing_user is not None
     database.save_or_update_user(input_name)
     
-    # 3. Dynamic User Greeting Sequences
     greeting = chatengine.get_time_greeting(input_name, is_returning=is_returning)
     print(greeting)
     
@@ -34,7 +30,6 @@ def main():
     print(f"Hello and Welcome to {bot_name}")
     print(welcome_msg)
 
-    # 4. Interactive Core State Loop
     while True:
         try:
             user_input = input("\nAsk Your Question: ").strip()
@@ -43,7 +38,6 @@ def main():
                 print("Bot response: Please type something so I can help you!")
                 continue
             
-            # Log the incoming query statement safely to the history table
             database.log_message(sender="User", message_text=user_input)
                 
             if "bye" in user_input.lower():
@@ -54,7 +48,6 @@ def main():
             reply = chatengine.get_response(user_input)
             print(f"Bot response: {reply}")
             
-            # Log the bot's outgoing reaction state cleanly to the database
             database.log_message(sender="Bot", message_text=reply)
             
         except KeyboardInterrupt:
