@@ -96,3 +96,26 @@ def get_last_interaction_context() -> str:
     
     connection.close()
     return result[0] if result else ""
+
+def get_recent_chat_history(limit: int = 6) -> list:
+    """
+    Retrieves the most recent chat rows from the database in chronological order.
+    Returns a list of dictionaries formatted as {'sender': ..., 'message': ...}
+    """
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
+    
+    # Grab the latest N records ordered by message_id descending
+    cursor.execute("""
+        SELECT sender, message_text FROM chat_history 
+        ORDER BY message_id DESC LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    connection.close()
+    
+    # Reverse the rows so they read in correct forward chronological order
+    rows.reverse()
+    
+    # Convert tuples into a clean dictionary structure
+    history = [{"role": "user" if row[0] == "User" else "assistant", "content": row[1]} for row in rows]
+    return history

@@ -4,6 +4,8 @@ import os
 import logging
 from groq import Groq
 
+import database
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config", "config.json")
 
@@ -63,25 +65,32 @@ def get_response(user_query: str) -> str:
     try:
         bot_name = bot_config.get("bot_name", "Smart AI Chatbot")
         
-        # Crafting the system instruction to give your model personality boundaries
+        # 1. Define the persistent structural persona rule
         system_instruction = (
             f"You are a helpful, polite, and intelligent assistant named {bot_name}. "
             "Provide helpful answers to the user's input. Keep your responses concise, "
             "clear, and direct (under 3 sentences unless asked for details)."
         )
         
-        # Call the Groq chat completions endpoint
+        # 2. Extract recent conversation arrays directly from our SQLite records
+        # Pulls the last 6 lines of conversation to form the context memory window
+        chat_memory_window = database.get_recent_chat_history(limit=6)
+        
+        # 3. Construct the full sequential payload array
+        # Start with the structural blueprint
+        messages_payload = [
+            {"role": "system", "content": system_instruction}
+        ]
+        
+        # Extend the payload with our sequential history list from the DB
+        messages_payload.extend(chat_memory_window)
+        
+        # Finally, append the active incoming message turn
+        messages_payload.append({"role": "user", "content": user_query})
+
+        # 4. Fire the complete stateful payload block over the network interface
         chat_completion = ai_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_instruction,
-                },
-                {
-                    "role": "user",
-                    "content": user_query,
-                }
-            ],
+            messages=messages_payload,
             model=MODEL_NAME,
             temperature=0.7,  # Controls creativity balance
         )
