@@ -60,7 +60,7 @@ def get_response(user_query: str) -> str:
     global ai_client
     
     if ai_client is None:
-        return "Engine Error: AI client is offline."
+        return get_local_fallback_response(user_query)
         
     try:
         bot_name = bot_config.get("bot_name", "Smart AI Chatbot")
@@ -100,4 +100,21 @@ def get_response(user_query: str) -> str:
         
     except Exception as e:
         logging.error(f"Groq API communication exception: {e}")
-        return "I am having trouble connecting to my external brain right now. Please try again shortly!"
+        return get_local_fallback_response(user_query)
+
+def get_local_fallback_response(user_query: str) -> str:
+    """
+    A robust, local backup generator that handles communication gracefully 
+    when external cloud APIs are unreachable.
+    """
+    bot_name = bot_config.get("bot_name", "Smart AI Chatbot")
+    
+    # Analyze the input locally for basic survival keywords
+    query_clean = user_query.lower()
+    if "help" in query_clean or "support" in query_clean:
+        return f"I am {bot_name}. My cloud connection is briefly offline, but you can check documentation or try again in a moment!"
+    if "hello" in query_clean or "hi" in query_clean:
+        return f"Hello there! I am operating in local safe-mode right now while my external processors refresh."
+        
+    # Standard polite fallback message
+    return f"My advanced cloud engine is currently adjusting its network circuits. I am safely online, but please ask that complex question again in a minute!"
