@@ -2,11 +2,14 @@ import logging
 from typing import Dict, Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
 import chatengine
 import database
+
+
 
 # Configure application logging framework
 logging.basicConfig(
@@ -34,6 +37,15 @@ app = FastAPI(
     description="Production-grade stateful endpoint with integrated system analytics",
     version="10.0.0",
     lifespan=lifespan
+)
+
+# ATTACH THE CORS MIDDLEWARE (ONCE)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Pydantic Data Contract Specifications ---
