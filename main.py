@@ -1,15 +1,15 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-import chatengine
 import database
-
-
+from services.conversation_manager import ConversationManager
 
 # Configure application logging framework
 logging.basicConfig(
@@ -17,29 +17,46 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# Global holder for our Agent Conversation Manager
+conversation_manager: Optional[ConversationManager] = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Manages the application startup and shutdown lifecycle events.
-    Guarantees underlying dependencies are booted before processing traffic.
+    Manages application startup and teardown events.
+    Initializes database and core Agent Orchestration Services.
     """
+    global conversation_manager
     logging.info("System boot sequence initiated via lifespan context handlers.")
-    chatengine.download_nlp_dependencies()
-    chatengine.load_system_data()
+    
+    # Initialize SQLite Database
     database.init_db()
-    logging.info("All modular layers successfully registered. Server online.")
+    
+    # Instantiate Agent Conversation Manager
+    conversation_manager = ConversationManager()
+    
+    logging.info("All agent modular layers successfully registered. Server online.")
     yield
     logging.info("System teardown sequence completed cleanly.")
 
+
+
 # Initialize the main FastAPI application instance
 app = FastAPI(
-    title="Smart AI Chatbot API",
-    description="Production-grade stateful endpoint with integrated system analytics",
-    version="10.0.0",
+    title="Smart AI Agent API",
+    description="Production-grade agentic API with dynamic function calling tools",
+    version="11.0.0",
     lifespan=lifespan
 )
 
-# ATTACH THE CORS MIDDLEWARE (ONCE)
+# Serve static files from the frontend folder
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+@app.get("/")
+def read_root():
+    return FileResponse("frontend/index.html")
+
+# Attach CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,26 +80,23 @@ class ChatResponse(BaseModel):
 @app.get("/health")
 def check_system_health() -> Dict[str, Any]:
     """
-    Performs a real-time system diagnostic check on critical infrastructure dependencies.
-    Used by cloud infrastructure orchestrators to verify application viability.
+    Performs system diagnostics to verify database and LLM service viability.
     """
     health_status: Dict[str, Any] = {
         "status": "healthy",
         "database_connectivity": "disconnected",
-        "external_llm_client": "offline"
+        "agent_llm_service": "offline"
     }
     
     try:
-        # Check database health status
         database.get_recent_chat_history(limit=1)
         health_status["database_connectivity"] = "connected"
     except Exception as db_err:
         health_status["status"] = "unhealthy"
         health_status["database_connectivity"] = f"error: {str(db_err)}"
         
-    # Check LLM client configuration state
-    if chatengine.ai_client is not None:
-        health_status["external_llm_client"] = "online"
+    if conversation_manager and conversation_manager.llm_service:
+        health_status["agent_llm_service"] = "online"
     else:
         health_status["status"] = "unhealthy"
         
@@ -95,9 +109,12 @@ def check_system_health() -> Dict[str, Any]:
 @app.post("/chat", response_model=ChatResponse)
 def handle_chat_session(payload: ChatRequest) -> ChatResponse:
     """
-    Processes stateful user conversations over a validated POST contract.
-    Persists history to SQLite and aggregates contextual memory arrays for LLM inference.
+    Processes user requests through the AI Agent execution pipeline.
+    Persists user input and agent tool outputs into SQLite storage.
     """
+    if not conversation_manager:
+        raise HTTPException(status_code=500, detail="Conversation Manager service not initialized.")
+
     try:
         input_name: str = payload.name.strip() if payload.name.strip() else "User"
         user_message: str = payload.message.strip()
@@ -105,20 +122,21 @@ def handle_chat_session(payload: ChatRequest) -> ChatResponse:
         if not user_message:
             raise HTTPException(status_code=400, detail="Inbound message content cannot be empty.")
 
-        # Evaluate existing user profile status to formulate accurate greet vectors
+        # Persist and sync user profile
         existing_user = database.get_user_profile(input_name)
         is_returning: bool = existing_user is not None
         
-        # Sync runtime profile data states to local database tables
         database.save_or_update_user(input_name)
         database.log_message(sender="User", message_text=user_message)
 
-        # Compute linguistic greetings and query generative model strings
-        greeting_string: str = chatengine.get_time_greeting(input_name, is_returning=is_returning)
-        bot_identity_name: str = chatengine.get_config_item("bot_name")
-        bot_reply: str = chatengine.get_response(user_message)
+        # Formulate greeting and query Agent Execution Engine
+        greeting_string: str = f"Welcome back, {input_name}!" if is_returning else f"Hello, {input_name}!"
+        bot_identity_name: str = "Agent"
 
-        # Persist generated response strings to history ledger rows
+        # Delegate execution to our Agent Pipeline
+        bot_reply: str = conversation_manager.process_message(user_message=user_message)
+
+        # Log AI Agent response
         database.log_message(sender="Bot", message_text=bot_reply)
 
         return ChatResponse(
@@ -131,7 +149,7 @@ def handle_chat_session(payload: ChatRequest) -> ChatResponse:
         raise http_ex
     except Exception as e:
         logging.error(f"Critical exception captured inside main runtime entrypoint: {e}")
-        raise HTTPException(status_code=500, detail="Internal server runtime matrix exception.")
+        raise HTTPException(status_code=500, detail="Internal server agent execution error.")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
