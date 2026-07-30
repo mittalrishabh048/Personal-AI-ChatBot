@@ -11,13 +11,8 @@ class ConversationManager:
     """
 
     def __init__(self):
-        # 1. Initialize LLM Service
         self.llm_service = LLMService()
-
-        # 2. Initialize Tool Manager
         self.tool_manager = ToolManager()
-
-        # 3. Register available tools
         self._register_default_tools()
 
     def _register_default_tools(self):
@@ -30,35 +25,42 @@ class ConversationManager:
         )
 
     def process_message(self, user_message: str, history: List[Dict[str, Any]] = None) -> str:
-        """
-        Executes the main agent processing loop.
-        """
         if history is None:
             history = []
 
-        # Construct payload with history and current message
-        messages = list(history)
+        system_instruction = {
+            "role": "system",
+            "content": (
+                "You are a helpful AI Assistant. "
+                "You have access to a tool named 'get_current_time'. "
+                "Only call 'get_current_time' if the user explicitly asks for the current date, time, or temporal updates. "
+                "Otherwise, respond naturally to the user's prompt without invoking tools."
+            )
+        }
+        
+        messages = [system_instruction] + list(history)
         messages.append({"role": "user", "content": user_message})
 
-        # Fetch schemas for available tools
         tools = self.tool_manager.get_tool_schemas()
 
-        # Step A: First call to LLM
-        response_message = self.llm_service.get_completion(messages=messages, tools=tools)
+        try:
+            response_message = self.llm_service.get_completion(messages=messages, tools=tools)
+        except Exception as llm_err:
+            print(f"[ConversationManager Error]: LLM completion failed: {llm_err}")
+            return "I am currently having trouble reaching my intelligence engine. Please try again shortly."
 
-        # Step B: Check if the model decided to call a tool
         if hasattr(response_message, "tool_calls") and response_message.tool_calls:
-            # Append initial model decision to message chain
             messages.append(response_message)
 
             for tool_call in response_message.tool_calls:
                 function_name = tool_call.function.name
                 arguments = tool_call.function.arguments
 
-                # Execute requested tool via ToolManager
-                tool_output = self.tool_manager.execute_tool(function_name, arguments)
+                try:
+                    tool_output = self.tool_manager.execute_tool(function_name, arguments)
+                except Exception as tool_err:
+                    tool_output = f"Tool Execution Failure: Unable to complete '{function_name}'. Details: {str(tool_err)}"
 
-                # Append tool result back to message context
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
@@ -66,9 +68,10 @@ class ConversationManager:
                     "content": tool_output
                 })
 
-            # Step C: Send tool output back to Groq for final natural response
-            final_response = self.llm_service.get_completion(messages=messages)
-            return final_response.content
+            try:
+                final_response = self.llm_service.get_completion(messages=messages)
+                return final_response.content
+            except Exception:
+                return "Executed the required action, but failed to format the response string."
 
-        # Direct reply without tool execution
-        return response_message.content
+        return response_message.content or "I processed your request, but have no text response to return."

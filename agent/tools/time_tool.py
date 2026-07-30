@@ -10,7 +10,7 @@ def get_current_time() -> str:
 # Definition of the tool schema used for registration
 TIME_TOOL_SCHEMA = {
     "name": "get_current_time",
-    "description": "Get the current date and system time. Use this whenever the user asks for current time, today's date, or temporal reference points.",
+    "description": "CRITICAL: You do NOT have an internal clock. You MUST invoke this function whenever the user asks for the current time, date, or temporal reference points.",
     "parameters": {
         "type": "object",
         "properties": {},
