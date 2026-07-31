@@ -10,10 +10,11 @@ from pydantic import BaseModel
 import uvicorn
 
 import database
-from config import settings
+from config.config import settings
 from services.conversation_manager import ConversationManager
 from services.stt_service import STTService
 from services.tts_service import TTSService
+from services.audio_cleanup import purge_stale_audio
 
 # Configure logging framework
 logging.basicConfig(
@@ -135,6 +136,7 @@ async def handle_voice_chat(
                 audio_url = ""
 
             background_tasks.add_task(remove_file, temp_inbound_audio)
+            background_tasks.add_task(purge_stale_audio)
             
             return VoiceChatResponse(
                 greeting=f"Hello, {name}!",
@@ -179,8 +181,9 @@ async def handle_voice_chat(
             # Fall back gracefully to returning text response if audio synthesis fails
             audio_url = ""
 
-        # Schedule temporary inbound file deletion via background task worker
+        # Schedule temporary inbound file deletion and periodic purge of stale audio outputs
         background_tasks.add_task(remove_file, temp_inbound_audio)
+        background_tasks.add_task(purge_stale_audio)
 
         return VoiceChatResponse(
             greeting=f"Hello, {name}!",
