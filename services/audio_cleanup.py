@@ -1,7 +1,7 @@
 import os
 import time
 import logging
-from config import settings
+from config.config import settings
 
 def purge_stale_audio(audio_dir: str = settings.AUDIO_DIR, max_age_seconds: int = settings.AUDIO_RETENTION_SECONDS):
     """

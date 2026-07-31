@@ -3,65 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart AI Chatbot Engine</title>
+    <title>Smart AI Voice Agent</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 12px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        .recording-active {
+            animation: pulse-ring 1.5s infinite;
+            background-color: #ef4444 !important;
+        }
+    </style>
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans h-screen flex flex-col justify-between">
 
     <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex justify-between items-center shadow-lg">
         <div class="flex items-center space-x-3">
-            <div class="w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></div>
-            <h1 class="text-xl font-bold tracking-tight">Smart AI Dashboard</h1>
+            <div id="status-indicator" class="w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></div>
+            <h1 class="text-xl font-bold tracking-tight">AI Agent Dashboard</h1>
         </div>
-        <div class="text-xs bg-slate-900 px-3 py-1.5 rounded-full border border-slate-700 text-slate-400">
-            Backend Port: <span class="text-emerald-400 font-mono">8000</span>
+        <div class="flex items-center space-x-3">
+            <span class="text-xs bg-slate-900 px-3 py-1.5 rounded-full border border-slate-700 text-slate-400">
+                Mode: <span class="text-emerald-400 font-mono">Voice & Text</span>
+            </span>
         </div>
     </header>
 
     <main id="chat-window" class="flex-1 overflow-y-auto p-6 space-y-4 max-w-4xl w-full mx-auto">
         <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 max-w-xl shadow-md">
-            <p class="text-emerald-400 font-semibold text-sm mb-1">System Engine Initialized</p>
-            <p class="text-slate-300 text-sm">Welcome to your full-stack AI platform. Type a message below to test your active conversational memory window!</p>
+            <p class="text-emerald-400 font-semibold text-sm mb-1">Agent Online</p>
+            <p class="text-slate-300 text-sm">
+                Speak directly by clicking the <strong>Microphone</strong> icon, or type your query in the text field below.
+            </p>
         </div>
     </main>
 
     <footer class="bg-slate-800 border-t border-slate-700 p-4">
-        <div class="max-w-4xl w-full mx-auto flex space-x-3">
+        <div class="max-w-4xl w-full mx-auto flex items-center space-x-3">
+            
+            <button 
+                id="mic-btn"
+                onclick="toggleRecording()" 
+                title="Click to Record Voice"
+                class="bg-emerald-600 hover:bg-emerald-500 text-white p-3.5 rounded-xl transition-all shadow-md flex items-center justify-center w-12 h-12"
+            >
+                <i id="mic-icon" class="fa-solid fa-microphone text-lg"></i>
+            </button>
+
             <input 
                 type="text" 
                 id="user-input" 
-                placeholder="Type your generative query here..." 
+                placeholder="Type or click the mic to speak..." 
                 class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors placeholder-slate-500"
-                onkeydown="if(event.key === 'Enter') dispatchMessage()"
+                onkeydown="if(event.key === 'Enter') dispatchTextMessage()"
             >
+
             <button 
-                onclick="dispatchMessage()" 
-                class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-3 rounded-xl transition-all shadow-md flex items-center"
+                onclick="dispatchTextMessage()" 
+                class="bg-slate-700 hover:bg-slate-600 text-white font-medium px-5 py-3 rounded-xl transition-all shadow-md flex items-center"
             >
-                Send
+                <i class="fa-solid fa-paper-plane mr-2"></i> Send
             </button>
         </div>
     </footer>
 
     <script>
-        const BACKEND_URL = "http://127.0.0.1:8000/chat";
-        const USER_NAME = "Rishabh"; // Using your profile identity key for the stateful engine
+        const USER_NAME = "Rishabh";
 
-        async function dispatchMessage() {
-            const inputField = document.getElementById("user-input");
-            const messageText = inputField.value.trim();
-            
-            if (!messageText) return;
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
 
-            // Clear input container immediately for fluid interactive responses
-            inputField.value = "";
+        // Determine best supported MIME type for mobile (iOS vs Android vs PC)
+        function getSupportedMimeType() {
+            const types = [
+                'audio/webm',
+                'audio/mp4',
+                'audio/aac',
+                'audio/ogg',
+                'audio/wav'
+            ];
+            for (let t of types) {
+                if (MediaRecorder.isTypeSupported(t)) return t;
+            }
+            return ''; // Fallback to browser default
+        }
 
-            // Append User Chat Bubble to UI Matrix
-            appendBubble("User", messageText);
+        // --- Voice Recording Logic ---
+        async function toggleRecording() {
+            const micBtn = document.getElementById("mic-btn");
+            const micIcon = document.getElementById("mic-icon");
+
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const mimeType = getSupportedMimeType();
+                    const options = mimeType ? { mimeType } : {};
+
+                    mediaRecorder = new MediaRecorder(stream, options);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0) audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = async () => {
+                        const actualType = mediaRecorder.mimeType || 'audio/webm';
+                        const ext = actualType.includes('mp4') || actualType.includes('aac') ? 'm4a' : 'webm';
+                        const audioBlob = new Blob(audioChunks, { type: actualType });
+                        await dispatchVoicePayload(audioBlob, ext);
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add("recording-active");
+                    micIcon.className = "fa-solid fa-stop text-lg";
+                } catch (err) {
+                    alert("Microphone access denied or unsupported on this browser.");
+                    console.error("Microphone Error:", err);
+                }
+            } else {
+                mediaRecorder.stop();
+                if (mediaRecorder.stream) {
+                    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                }
+                
+                isRecording = false;
+                micBtn.classList.remove("recording-active");
+                micIcon.className = "fa-solid fa-microphone text-lg";
+            }
+        }
+
+        // --- Dispatch Voice Payload (Relative URL for Mobile & PC) ---
+        async function dispatchVoicePayload(blob, extension = "webm") {
+            const formData = new FormData();
+            formData.append("file", blob, `user_recording.${extension}`);
+            formData.append("name", USER_NAME);
+
+            const loadingBubbleId = appendLoadingBubble();
 
             try {
-                // Execute standard asynchronous network fetch over the API interface contract
-                const response = await fetch(BACKEND_URL, {
+                const response = await fetch("/chat/voice", {
+                    method: "POST",
+                    body: formData
+                });
+
+                removeLoadingBubble(loadingBubbleId);
+
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+                const data = await response.json();
+
+                appendBubble("User (Voice)", `🎙️ <em>"${data.transcription}"</em>`);
+
+                const compositeReply = `<strong>${data.greeting}</strong><br><br>${data.reply}`;
+                appendBubble(data.bot_name, compositeReply, data.audio_url);
+
+            } catch (error) {
+                removeLoadingBubble(loadingBubbleId);
+                console.error("Voice Error:", error);
+                appendBubble("System Error", "Failed to transmit voice payload to server core.");
+            }
+        }
+
+        // --- Dispatch Text Query (Relative URL) ---
+        async function dispatchTextMessage() {
+            const inputField = document.getElementById("user-input");
+            const messageText = inputField.value.trim();
+            if (!messageText) return;
+
+            inputField.value = "";
+            appendBubble("User", messageText);
+
+            const loadingBubbleId = appendLoadingBubble();
+
+            try {
+                const response = await fetch("/chat", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -70,45 +189,90 @@
                     })
                 });
 
-                if (!response.ok) {
-                    throw new Error(`Server returned HTTP Error Status: ${response.status}`);
-                }
+                removeLoadingBubble(loadingBubbleId);
 
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
                 const data = await response.json();
-                
-                // Format response output string nicely incorporating greetings and AI payload answers
+
                 const compositeReply = `<strong>${data.greeting}</strong><br><br>${data.reply}`;
-                appendBubble(data.bot_name, compositeReply);
+                appendBubble(data.bot_name || "Agent", compositeReply);
 
             } catch (error) {
-                console.error("Network communication breakdown: ", error);
-                appendBubble("System Error", "Unable to transmit payload frames to your Python server core. Ensure 'main.py' is running locally on port 8000.");
+                removeLoadingBubble(loadingBubbleId);
+                console.error("Text Error:", error);
+                appendBubble("System Error", "Unable to transmit text query to server core.");
             }
         }
 
-        function appendBubble(sender, text) {
+        // --- Append Chat Bubbles ---
+        function appendBubble(sender, content, audioUrl = null) {
             const chatWindow = document.getElementById("chat-window");
             const bubbleWrapper = document.createElement("div");
-            bubbleWrapper.className = "flex flex-col " + (sender === "User" ? "items-end" : "items-start");
-
-            const isUser = sender === "User";
+            
+            const isUser = sender.includes("User");
             const isError = sender === "System Error";
+
+            bubbleWrapper.className = "flex flex-col " + (isUser ? "items-end" : "items-start");
 
             let themeClasses = "bg-slate-800 text-slate-200 border-slate-700";
             if (isUser) themeClasses = "bg-emerald-600 text-white border-emerald-500";
             if (isError) themeClasses = "bg-rose-950 text-rose-200 border-rose-800";
 
+            let audioPlayerHtml = "";
+            if (audioUrl) {
+                audioPlayerHtml = `
+                    <div class="mt-3 pt-2 border-t border-slate-700/50">
+                        <audio controls class="w-full h-8 rounded audio-player">
+                            <source src="${audioUrl}" type="audio/mpeg">
+                            Your browser does not support audio playback.
+                        </audio>
+                    </div>
+                `;
+            }
+
             bubbleWrapper.innerHTML = `
                 <span class="text-xs text-slate-500 font-mono mb-1 px-1">${sender}</span>
                 <div class="max-w-xl border p-4 rounded-2xl shadow-sm text-sm leading-relaxed ${themeClasses}">
-                    ${text}
+                    ${content}
+                    ${audioPlayerHtml}
                 </div>
             `;
 
             chatWindow.appendChild(bubbleWrapper);
-            
-            // Instantly auto-scroll UI viewport containers downwards for new content turns
             chatWindow.scrollTop = chatWindow.scrollHeight;
+
+            // Attempt safe autoplay for mobile
+            if (audioUrl) {
+                const audioElement = bubbleWrapper.querySelector(".audio-player");
+                if (audioElement) {
+                    audioElement.play().catch(e => console.log("Autoplay prevented by mobile browser policy. Tap play button manually."));
+                }
+            }
+        }
+
+        function appendLoadingBubble() {
+            const chatWindow = document.getElementById("chat-window");
+            const id = "loading-" + Date.now();
+            const bubbleWrapper = document.createElement("div");
+            bubbleWrapper.id = id;
+            bubbleWrapper.className = "flex flex-col items-start";
+
+            bubbleWrapper.innerHTML = `
+                <span class="text-xs text-slate-500 font-mono mb-1 px-1">Agent</span>
+                <div class="bg-slate-800 border border-slate-700 p-4 rounded-2xl text-sm text-slate-400 flex items-center space-x-2">
+                    <i class="fa-solid fa-circle-notch animate-spin text-emerald-400"></i>
+                    <span>Reasoning...</span>
+                </div>
+            `;
+
+            chatWindow.appendChild(bubbleWrapper);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+            return id;
+        }
+
+        function removeLoadingBubble(id) {
+            const elem = document.getElementById(id);
+            if (elem) elem.remove();
         }
     </script>
 </body>
