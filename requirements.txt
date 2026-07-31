@@ -3,3 +3,6 @@ fastapi
 uvicorn
 pydantic
 groq
+gtts
+python-multipart
+aiofiles
