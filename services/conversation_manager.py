@@ -6,8 +6,8 @@ from agent.tools.time_tool import TIME_TOOL_SCHEMA
 
 class ConversationManager:
     """
-    Orchestrates the conversation flow between user prompts, the LLM service,
-    and agent tools.
+    Orchestrates conversation flow between user prompts, the LLM service,
+    and registered tools.
     """
 
     def __init__(self):
@@ -32,14 +32,15 @@ class ConversationManager:
             "role": "system",
             "content": (
                 "You are a helpful AI Assistant. "
+                "Remember conversation details mentioned by the user previously. "
                 "You have access to a tool named 'get_current_time'. "
                 "Only call 'get_current_time' if the user explicitly asks for the current date, time, or temporal updates. "
-                "Otherwise, respond naturally to the user's prompt without invoking tools."
+                "Otherwise, respond naturally using conversation history context."
             )
         }
         
-        messages = [system_instruction] + list(history)
-        messages.append({"role": "user", "content": user_message})
+        # Combine system prompt + chronological history + current turn
+        messages = [system_instruction] + list(history) + [{"role": "user", "content": user_message}]
 
         tools = self.tool_manager.get_tool_schemas()
 
@@ -49,6 +50,7 @@ class ConversationManager:
             print(f"[ConversationManager Error]: LLM completion failed: {llm_err}")
             return "I am currently having trouble reaching my intelligence engine. Please try again shortly."
 
+        # Handle tool calling
         if hasattr(response_message, "tool_calls") and response_message.tool_calls:
             messages.append(response_message)
 

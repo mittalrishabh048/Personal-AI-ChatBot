@@ -9,7 +9,6 @@ DB_PATH = os.path.join(DB_DIR, "chatbot.db")
 
 def init_db():
     """Ensures the data directory exists and builds the database tables."""
-    # Ensure the data/ directory exists before attempting to create the db file
     if not os.path.exists(DB_DIR):
         os.makedirs(DB_DIR)
         logging.info("Created missing data directory for database.")
@@ -17,7 +16,6 @@ def init_db():
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
 
-    # Table 1: User profiles to save application state
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_profiles (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,7 +24,6 @@ def init_db():
         )
     """)
 
-    # Table 2: Chronological chat logs
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS chat_history (
             message_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,10 +41,8 @@ def get_user_profile(name: str):
     """Fetches a user profile row by name."""
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
-    
     cursor.execute("SELECT * FROM user_profiles WHERE name = ?", (name,))
     user = cursor.fetchone()
-    
     connection.close()
     return user
 
@@ -57,7 +52,6 @@ def save_or_update_user(name: str):
     cursor = connection.cursor()
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Insert name, or update last_seen if the name already exists
     cursor.execute("""
         INSERT INTO user_profiles (name, last_seen) 
         VALUES (?, ?)
@@ -81,31 +75,15 @@ def log_message(sender: str, message_text: str):
     connection.commit()
     connection.close()
 
-def get_last_interaction_context() -> str:
-    """Retrieves what the bot last said to help establish context tracking later."""
-    connection = sqlite3.connect(DB_PATH)
-    cursor = connection.cursor()
-    
-    # Grab the most recent entry spoken by the Bot
-    cursor.execute("""
-        SELECT message_text FROM chat_history 
-        WHERE sender = 'Bot' 
-        ORDER BY message_id DESC LIMIT 1
-    """)
-    result = cursor.fetchone()
-    
-    connection.close()
-    return result[0] if result else ""
-
-def get_recent_chat_history(limit: int = 6) -> list:
+def get_recent_chat_history(limit: int = 10) -> list:
     """
     Retrieves the most recent chat rows from the database in chronological order.
-    Returns a list of dictionaries formatted as {'sender': ..., 'message': ...}
+    Returns a list of OpenAI/Groq formatted message dicts:
+    [{"role": "user" | "assistant", "content": "text"}]
     """
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
     
-    # Grab the latest N records ordered by message_id descending
     cursor.execute("""
         SELECT sender, message_text FROM chat_history 
         ORDER BY message_id DESC LIMIT ?
@@ -113,9 +91,14 @@ def get_recent_chat_history(limit: int = 6) -> list:
     rows = cursor.fetchall()
     connection.close()
     
-    # Reverse the rows so they read in correct forward chronological order
+    # Reverse rows to maintain chronological sequence
     rows.reverse()
     
-    # Convert tuples into a clean dictionary structure
-    history = [{"role": "user" if row[0] == "User" else "assistant", "content": row[1]} for row in rows]
+    history = [
+        {
+            "role": "user" if row[0] == "User" else "assistant",
+            "content": row[1]
+        }
+        for row in rows
+    ]
     return history

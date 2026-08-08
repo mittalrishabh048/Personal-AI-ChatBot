@@ -28,7 +28,6 @@ conversation_manager: Optional[ConversationManager] = None
 stt_service: Optional[STTService] = None
 tts_service: Optional[TTSService] = None
 
-# Ensure audio storage directory exists
 os.makedirs(settings.AUDIO_DIR, exist_ok=True)
 
 @asynccontextmanager
@@ -51,7 +50,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Middleware Setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -60,11 +58,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static folders
 app.mount("/audio", StaticFiles(directory=settings.AUDIO_DIR), name="audio")
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
-# Schemas
 class VoiceChatResponse(BaseModel):
     greeting: str
     bot_name: str
@@ -87,12 +83,11 @@ def remove_file(path: str):
 
 @app.get("/", response_class=FileResponse)
 async def serve_frontend():
-    """Serves the main HTML dashboard interface."""
     return FileResponse("frontend/index.html")
 
 @app.post("/chat")
 async def handle_text_chat(payload: ChatRequest):
-    """Handles standard text chat requests."""
+    """Handles standard text chat requests with proper context retrieval."""
     if not conversation_manager:
         raise HTTPException(status_code=503, detail="Conversation service unavailable.")
 
@@ -100,19 +95,18 @@ async def handle_text_chat(payload: ChatRequest):
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
     database.save_or_update_user(payload.name)
-    database.log_message(sender="User", message_text=payload.message)
 
-    raw_history = database.get_recent_chat_history(limit=settings.MAX_HISTORY_LIMIT)
-    formatted_history = [
-        {"role": "user" if msg.get("sender") == "User" else "assistant", "content": msg.get("message_text")}
-        for msg in raw_history
-    ]
+    # 1. Retrieve PRIOR chat history (before appending the new message)
+    formatted_history = database.get_recent_chat_history(limit=settings.MAX_HISTORY_LIMIT)
 
+    # 2. Process message through LLM Agent
     bot_reply = conversation_manager.process_message(
         user_message=payload.message,
         history=formatted_history
     )
 
+    # 3. Log user prompt and bot response to DB after processing
+    database.log_message(sender="User", message_text=payload.message)
     database.log_message(sender="Bot", message_text=bot_reply)
 
     return {
@@ -143,7 +137,6 @@ async def handle_voice_chat(
             shutil.copyfileobj(file.file, buffer)
         file_saved_successfully = True
 
-        # STT
         try:
             raw_user_message = stt_service.transcribe_audio(temp_inbound_audio)
         except Exception as stt_err:
@@ -152,7 +145,6 @@ async def handle_voice_chat(
 
         user_message_clean = raw_user_message.strip().strip(".").strip(",").strip()
 
-        # Handle Empty Speech / Noise
         if not user_message_clean:
             fallback_reply = "I couldn't hear anything in your recording. Please try speaking again."
             audio_filename = f"fallback_{os.urandom(4).hex()}.mp3"
@@ -175,16 +167,12 @@ async def handle_voice_chat(
                 audio_url=audio_url
             )
 
-        # Process LLM Pipeline
-        raw_history = database.get_recent_chat_history(limit=settings.MAX_HISTORY_LIMIT)
-        formatted_history = [
-            {"role": "user" if msg.get("sender") == "User" else "assistant", "content": msg.get("message_text")}
-            for msg in raw_history
-        ]
-
         database.save_or_update_user(name)
-        database.log_message(sender="User", message_text=f"[Voice Input]: {raw_user_message}")
 
+        # 1. Retrieve PRIOR chat history
+        formatted_history = database.get_recent_chat_history(limit=settings.MAX_HISTORY_LIMIT)
+
+        # 2. Process via LLM
         try:
             bot_reply = conversation_manager.process_message(
                 user_message=raw_user_message,
@@ -194,6 +182,8 @@ async def handle_voice_chat(
             logging.error(f"[LLM Failure]: {llm_err}")
             bot_reply = "I'm having trouble connecting right now. Please try again."
 
+        # 3. Log interaction to DB
+        database.log_message(sender="User", message_text=f"[Voice Input]: {raw_user_message}")
         database.log_message(sender="Bot", message_text=bot_reply)
 
         # TTS Synthesis
